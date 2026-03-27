@@ -366,6 +366,7 @@ def build_lstm_dataset(
     test_ratio: float = 0.2,
     sentiment_method: Literal["vader", "tfidf"] = "vader",
     feature_cols: list[str] | None = None,
+    add_indicators: bool = True,
 ) -> dict:
     """End-to-end preprocessing that returns everything the model needs.
 
@@ -384,8 +385,11 @@ def build_lstm_dataset(
         Which sentiment backend to use.
     feature_cols:
         Which columns to normalise and feed into the model.  When *None*,
-        defaults to ``["Close"]`` (price-only) or includes sentiment columns
-        when *news_df* is provided.
+        defaults to ``["Close"]`` (price-only) or includes sentiment and
+        technical-indicator columns when available.
+    add_indicators:
+        Whether to compute and include technical indicators (RSI, MACD,
+        moving averages, Bollinger Bands, Volatility).  Default ``True``.
 
     Returns
     -------
@@ -398,10 +402,34 @@ def build_lstm_dataset(
     else:
         df = stock_df.copy()
 
+    # Add technical indicators
+    if add_indicators:
+        try:
+            from features import add_technical_indicators  # noqa: PLC0415
+
+            df = add_technical_indicators(df, drop_na=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not add technical indicators: %s", exc)
+
     # Default feature columns
     if feature_cols is None:
-        candidates = ["Close", "compound", "sentiment_pos", "sentiment_neg"]
+        candidates = [
+            "Close",
+            "RSI",
+            "MACD",
+            "MACD_Signal",
+            "BB_Upper",
+            "BB_Lower",
+            "SMA_20",
+            "EMA_12",
+            "Volatility",
+            "compound",
+            "sentiment_pos",
+            "sentiment_neg",
+        ]
         feature_cols = [c for c in candidates if c in df.columns]
+        if not feature_cols:
+            feature_cols = ["Close"]
 
     scaled_df, scaler = normalize_stock_data(df, feature_cols=feature_cols)
 
